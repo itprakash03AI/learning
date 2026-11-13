@@ -1,0 +1,7 @@
+Deployment_2026_11_07_2adb5a259: 1 parts, each under 24 MB.
+Extract EVERY part into the SAME folder; together they are the whole bundle.
+
+Deployment_2026_11_07_2adb5a259.zip  2.9 MB  157 files  sha256 be4cdb6c48b234876c1d9b9cf7846bf193b0c3f33d92318977c62c28c89a477d
+    contains: DELETED.txt, MANIFEST.txt, backend, frontend, k8s, scripts, spark
+
+157 files in all

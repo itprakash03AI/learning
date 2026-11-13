@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAT Update 2026-11-12</title>
+<style>
+  :root { --ink:#1d1d1f; --line:#ddd; --head:#f6f6f6; --warn:#fff6e0; --warnb:#e0a000; --bg:#fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#e8e8e8; --line:#444; --head:#2a2a2a; --warn:#3a3020; --warnb:#c90; --bg:#161616; } }
+  :root[data-theme="dark"] { --ink:#e8e8e8; --line:#444; --head:#2a2a2a; --warn:#3a3020; --warnb:#c90; --bg:#161616; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; line-height: 1.55; max-width: 1000px;
+         margin: 2rem auto; padding: 0 16px; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid var(--line); padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  th, td { border: 1px solid var(--line); padding: .4rem .55rem; text-align: left; vertical-align: top; font-size: .93rem; }
+  th { background: var(--head); }
+  code { background: var(--head); border-radius: 3px; font-size: .9em; padding: .1rem .3rem; }
+  .warn { background: var(--warn); border-left: 4px solid var(--warnb); padding: .5rem .8rem; margin: .8rem 0; }
+  li { margin: .3rem 0; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+<h1>UAT update, 2026-11-12 (Thursday)</h1>
+<p>Code <code>9c086f618</code> on master, tag <code>release/2026-11-12-9c086f618</code>. Zip
+<code>Deployment_2026_11_12_9c086f618.zip</code> (3.0 MB, one part).</p>
+<div class="warn">This zip holds every change since <code>f5a516200</code>, the 11-10 zip you deployed. That
+includes the 11-11 zip, so if you did not deploy 11-11, deploy only this one. If you did deploy 11-11, this
+one goes on top of it the same way.</div>
+
+<h2>1 · What is in the zip</h2>
+<p>147 files: 84 backend, 47 frontend, 11 Helm chart files, 4 for the Spark job image, and 1 SQL example script,
+plus <code>MANIFEST.txt</code> and <code>DELETED.txt</code>. Nothing to delete. No new Python or npm packages.</p>
+<p>Also in the delivery folder: <code>SPARK_AND_QUERY_PODS_TEST_GUIDE_2026_11_11.html</code>, the step-by-step guide
+for testing Spark pods and query pods on UAT.</p>
+
+<h2>2 · What changes in the database at start-up</h2>
+<p>Nothing to run by hand. The new pods add these by themselves when they start:</p>
+<ul>
+  <li><b>Five new tables:</b> <code>app_roles</code>, <code>app_role_sources</code>, <code>access_grants</code>,
+  <code>feed_template_partition_scans</code>, <code>feed_template_partition_gaps</code>.</li>
+  <li><b>New columns</b> on existing tables. Every one is new and empty, and none of the existing columns change.</li>
+  <li><b>Two unique indexes:</b> one on the new release column, and one on the new template-member column of
+  <code>feed_configs</code>. Both columns are new and empty, so the indexes cannot fail on existing data.</li>
+  <li><b>Three one-time data steps, made so that nobody loses access:</b>
+    <ul>
+      <li>Every report permission of level <i>view</i> given before this update becomes <i>runner</i>. From now on
+      <i>view</i> means "open the saved result only", and <i>runner</i> means "may also run the report".
+      Everyone who could run a report before can still run it.</li>
+      <li>Every published report that already has a role list also gets the <code>api_consumer</code> role, so
+      every existing API key keeps reading exactly what it read.</li>
+      <li>The old "who can use this connection" rows are copied into the new <code>access_grants</code> table.
+      Rows that were switched off stay switched off.</li>
+    </ul></li>
+</ul>
+
+<h2>3 · Deploy, in this order</h2>
+<ol>
+  <li><b>Take a database backup.</b> The rollback below needs it only if you want the three one-time data steps
+  undone as well.</li>
+  <li>Unzip over the source tree of your UAT deployment.</li>
+  <li>Build these images and push them with the tag you deploy:
+    <table>
+      <tr><th>Image</th><th>Why</th></tr>
+      <tr><td>querystudio-api (<code>Dockerfile.api</code>)</td><td>Backend code. The feed worker, scheduler, job
+      worker, downloads and query pods run this image too.</td></tr>
+      <tr><td>querystudio-reports (<code>Dockerfile.reports</code>)</td><td>Same backend code. Build it so that every
+      pod runs the same code.</td></tr>
+      <tr><td>querystudio-published-api (<code>Dockerfile.published-api</code>)</td><td>Same reason.</td></tr>
+      <tr><td>UI image (<code>Dockerfile.ui</code>)</td><td>Frontend code.</td></tr>
+      <tr><td><b>Spark job image</b> (<code>spark/Dockerfile</code>)</td><td>It changed: it now carries the
+      Databricks JDBC driver. Push it to your registry and put its name in <code>env/uat.site.yaml</code> as
+      <code>sparkK8s.image</code>. The deploy stops with a message naming <code>spark_k8s.image</code> if it is
+      missing.</td></tr>
+    </table></li>
+  <li><b>Helm: deploy EVERY chart, from <code>Charts_2026_11_12_7640e4a34.zip</code></b> (added 2026-11-12, after
+  this guide was first sent). The update zips carry only what changed, and the query-pods chart was last carried on
+  11-03, so a UAT deployed without <code>k8s/</code> since then does not have it. The charts zip is the whole
+  <code>k8s/querystudioapi-helm</code> folder: 9 charts plus <code>env/uat.yaml</code> and <code>deploy.sh</code>. It
+  replaces the <code>k8s/</code> files in the deployment zip; use it instead of them. Keep your own
+  <code>env/uat.site.yaml</code>, which is not in the zip. Run <code>./deploy.sh uat</code>, which deploys api,
+  feed-worker, job-worker, scheduler, <b>query-pods</b>, published-api, reports, downloads and ui. Afterwards,
+  <code>oc get deploy -n 45646 | grep query-pods</code> shows <code>querystudio-query-pods-s</code> and
+  <code>querystudio-query-pods-m</code> at 0/0. <code>env/uat.yaml</code> switches these on:
+    <ul>
+      <li><b>Query pods:</b> size s is 4 GB (0 to 2 pods) and size m is 8 GB (0 to 1 pod). Each size starts at 0 pods.
+      A pod is created when a run arrives and removed after 10 quiet minutes. QueryStudio's own scaler does this,
+      because UAT has no KEDA.</li>
+      <li><b>UAT test mode:</b> every query goes to a query pod, reports included.</li>
+      <li><b>The run queue</b>, which query pods need.</li>
+      <li><b>Spark pods</b> in project 45646.</li>
+      <li><b>Spark Connect is OFF.</b> UAT has no Spark Connect server. Before, <code>env/uat.yaml</code> switched it on
+      and pointed at a server that is not there, so a feed of 500,000 to 10 million rows on "Automatic" was sent to it
+      and failed. Now a feed up to 500,000 rows runs on the QueryStudio worker, and above that on its own Spark pods.</li>
+    </ul>
+    What the project must allow (Roles, memory) is in section 1 of the pods test guide.</li>
+  <li>Roll out the new images the way you did for the last update.</li>
+</ol>
+<div class="warn"><b>AWS portal proxy:</b> the proxy no longer uses the separate proxy username and password on
+Admin &rarr; AWS Portal. It logs in with the same System Account as the portal itself, from Vault. Before you
+deploy, check that the System Account chosen on that page can log in to the proxy. On the rig, the old fields are
+read by nothing.</div>
+
+<h2>3a · Query pods (MotherDuck-style) and Spark pods, in short</h2>
+<table>
+  <tr><th></th><th>Query pods</th><th>Spark pods</th></tr>
+  <tr><td>What runs there</td><td>Queries on the SQL page, query builder runs, reports, and published APIs built on
+  reports</td><td>Feeds</td></tr>
+  <tr><td>Engine</td><td>DuckDB, reading S3 directly or the source through its connection</td><td>Spark: one driver
+  plus executors</td></tr>
+  <tr><td>How it is chosen</td><td>Each run is priced by the memory it needs and goes to the smallest size that holds it:
+  s (4 GB) or m (8 GB). Too big for every size: refused with the reason.</td><td>Automatic by size (above 500,000 rows),
+  or <b>Run now &rarr; Engine for this run &rarr; Spark cluster</b> for one run</td></tr>
+  <tr><td>When pods exist</td><td>0 pods while quiet. One is created when a run arrives (1 to 3 minutes for the first
+  one) and removed after 10 quiet minutes.</td><td>Created for the run, removed when it ends</td></tr>
+  <tr><td>Who starts them</td><td>QueryStudio's own scaler in the scheduler pod (UAT has no KEDA)</td><td>The API or
+  feed-worker pod; with the Spark operator, through it</td></tr>
+  <tr><td>Chart</td><td><code>query-pods</code></td><td>Part of the api, feed-worker and job-worker charts (the
+  <code>rbac-spark-k8s</code> Role), plus the Spark job image</td></tr>
+  <tr><td>Where to look</td><td>Admin &rarr; Component Health &rarr; "query pods"; <code>oc get deploy,pods -n 45646 |
+  grep query-pods</code></td><td>The run's details (which engine and why); <code>oc get pods -n 45646 -l spark-role
+  -w</code></td></tr>
+</table>
+<p>The step-by-step tests for both are in <code>SPARK_AND_QUERY_PODS_TEST_GUIDE_2026_11_11.html</code> in this delivery.</p>
+
+<h2>4 · What is new or fixed</h2>
+<table>
+  <tr><th>Where</th><th>Now</th></tr>
+  <tr><td>Connections with a Vault System Account (the main item)</td><td>
+    <ul>
+      <li>A connection that uses a Vault System Account can be shared, even if an old typed password or old AWS keys
+      were still saved on it. The old values are removed when you share it, and the login comes from Vault
+      only.</li>
+      <li>The AWS portal proxy logs in with the same System Account as the portal.</li>
+      <li>A System Account's "last test" no longer turns red after a page refresh. When a test really fails, it says
+      which step failed.</li>
+    </ul></td></tr>
+  <tr><td>Snowflake</td><td>A query works with no schema chosen. Table names are written the way Snowflake expects
+  them.</td></tr>
+  <tr><td>Published APIs</td><td>
+    <ul>
+      <li>An API always runs the latest saved version of its query. Before, it could keep running an old copy.</li>
+      <li>Every API's examples now have a <b>Python client (ready to copy)</b>. It is one file that reads every row
+      page by page, or in one go with <code>--bulk</code>. It handles retries and "please wait" answers, and signs
+      in with an API key or with AD. A wrong key gives one plain error line.</li>
+    </ul></td></tr>
+  <tr><td>Who sees a report (app roles)</td><td>
+    <ul>
+      <li>When you publish a report for the first time, you must say who sees it: one or more roles (for example
+      Finance), or everyone. Reports that were published before keep their lists as they are.</li>
+      <li>Admin &rarr; <b>Roles and permissions</b> is where roles are managed.</li>
+      <li>A report permission can be given to a role.</li>
+      <li>A person who is refused can press <b>Request access</b>, and the owner is told.</li>
+    </ul></td></tr>
+  <tr><td>Who can use a connection</td><td>In the connection's dialog, <b>Who can use this connection</b>: everyone,
+  or only chosen roles, AD groups or user groups. It is given to groups, never to one person. A grant to a single
+  person from before is kept and shown as "Person (old grant)".</td></tr>
+  <tr><td>Feeds</td><td>
+    <ul>
+      <li><b>Run now &rarr; Engine for this run:</b> run any feed once on its own Spark pods, whatever its size. The
+      feed's own setting does not change.</li>
+      <li>Databricks feeds can run on Spark. This is off unless the setting
+      <code>feed_generation.spark_route_databricks</code> is switched on.</li>
+      <li>A month-end template can take its member list from the table's partitions: new codes become feeds at the
+      next start-of-day run.</li>
+    </ul></td></tr>
+  <tr><td>Reports</td><td>
+    <ul>
+      <li>A date with no data shows an empty report, instead of "schema could not be read".</li>
+      <li>"Explain this" on a number card splits the change by the report's own fields.</li>
+    </ul></td></tr>
+  <tr><td>Screens</td><td>The side panels (objects panel, query builder sidebar, SQL schema panel, Admin menu) can
+  be resized by dragging their edge. Double-click the edge to reset.</td></tr>
+  <tr><td>Releases from UAT to PROD</td><td>The release pipeline is in the code. In PROD it needs the GitLab settings
+  and a signing key. It does nothing until those are set.</td></tr>
+</table>
+
+<h2>5 · What to test (about 45 minutes)</h2>
+<ol>
+  <li><b>Vault connection.</b> Take a Portal SSO S3 connection that uses a Vault System Account and still has old
+  keys saved on it. Share it with a group: the share is accepted. Open it: only the Vault account is shown. Someone
+  in that group runs a query on it.</li>
+  <li><b>System Accounts.</b> Use <b>Test</b> on an account, then refresh the page: the result stays.</li>
+  <li><b>Snowflake.</b> Run a query on a Snowflake connection with no schema chosen.</li>
+  <li><b>Publish a new report.</b> You are asked who sees it. Choose a role and check that someone without the role
+  cannot open the report. Open an old report: nothing about its access has changed.</li>
+  <li><b>Python client.</b> Published APIs &rarr; an API &rarr; examples &rarr; <b>Python client (ready to copy)</b>.
+  Save it, set <code>QS_API_KEY</code>, run <code>python qs_&lt;name&gt;.py --out rows.csv</code>. The row count
+  matches the API.</li>
+  <li><b>Spark pods and query pods:</b> follow the pods test guide in this delivery (sections 2 and 3).</li>
+</ol>
+
+<h2>6 · What was tested on this code</h2>
+<table>
+  <tr><th>Test</th><th>Result</th></tr>
+  <tr><td>CI test suite (Python 3.11, no network)</td><td>42,560 passed, 0 failed</td></tr>
+  <tr><td>Frontend type check and tests</td><td>Type check clean; 3,291 of 3,291 passed</td></tr>
+  <tr><td>Full run from an empty system, on Docker</td><td>
+    <p>94 proofs: 93 passed in one sequence. They include:</p>
+    <ul>
+      <li>Spark pods 41/41, query pod scaling 9/9 and 5/5, query pod routing 24/24, query pods on every screen
+      21/21</li>
+      <li>Vault portal account 19/19, sharing with Vault 21/21, AWS portal on every road 27/27</li>
+      <li>UAT-to-PROD release 71/71, report commentary 55/55</li>
+    </ul>
+    <p>The one failure was the new Python client test. The test machine started the client in a mode that hid an
+    installed package, so the failure was in the test, not in the product. I fixed the test, and it then passed
+    6 of 6 on the same system: 1,000,000 rows page by page, 1,000,000 with <code>--bulk</code>, and a wrong key
+    refused in plain words.</p></td></tr>
+  <tr><td>Real cloud accounts</td><td>Databricks 107/107, Snowflake 83/83, Databricks feeds on Spark 19/19</td></tr>
+  <tr><td>Browser tests, signed in as a real user</td><td>7 of 7</td></tr>
+</table>
+<p>All of this ran on <code>2532bcf7e</code>. From there to <code>9c086f618</code>, the only change is three code
+comments.</p>
+<p><b>Not tested:</b></p>
+<ul>
+  <li>Your own Vault, AWS portal and proxy, Spark project, SFTP servers, Starburst and Hive, and mail server. My rig
+  uses stand-ins for these.</li>
+  <li>App roles, who can use a connection, and the partition-driven month-end template have unit tests, and the
+  Docker run uses them along the way (every report it publishes goes through the new rule). Each still needs its own
+  Docker test, which comes next.</li>
+</ul>
+
+<h2>7 · Check after deploying (10 minutes)</h2>
+<ul>
+  <li>Component Health is green.</li>
+  <li>Connections opens, every saved password shows <code>***</code>, and an existing connection's Test passes.</li>
+  <li>Open an existing report and run it: the numbers are the same as before, and the same people can open it.</li>
+  <li>Press <b>Run now</b> on a feed: it completes and the file arrives.</li>
+  <li>Run one query: in the project, a query pod starts (the first one takes 1 to 3 minutes) and answers.</li>
+</ul>
+
+<h2>8 · If you must roll back</h2>
+<p>Deploy the 11-10 (or 11-11) images and charts again, or use <code>helm rollback</code>. The older code ignores
+the new tables and columns. The <i>view</i> to <i>runner</i> step stays in the data, and older code treats
+<i>runner</i> as at least <i>view</i>. If you want the data exactly as it was before this update, restore the
+backup from step 1.</p>
+</body>
+</html>

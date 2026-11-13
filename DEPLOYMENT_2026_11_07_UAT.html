@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAT Update 2026-11-07</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; line-height: 1.55; max-width: 1000px;
+         margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; background: #fff; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  th, td { border: 1px solid #ddd; padding: .4rem .55rem; text-align: left; vertical-align: top; font-size: .93rem; }
+  th { background: #f6f6f6; }
+  code { background: #f4f4f4; border-radius: 3px; font-size: .9em; padding: .1rem .3rem; }
+  .warn { background: #fff6e0; border-left: 4px solid #e0a000; padding: .5rem .8rem; margin: .8rem 0; }
+  li { margin: .3rem 0; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+</style></head><body>
+<h1>UAT update, 2026-11-07 (Saturday)</h1>
+<p>Release <code>2adb5a259</code>, tag <code>release/2026-11-07-2adb5a259</code>. Zip: <code>Deployment_2026_11_07_2adb5a259.zip</code> (2.9 MB, one file).</p>
+
+<div class="warn"><b>Do not copy the <code>k8s</code> folder if you edit the charts by hand.</b> It would overwrite your own edits. Only one chart line is new since the 11-06 zip, and section 3 shows it.</div>
+
+<h2>1 · What is in the zip</h2>
+<p>It holds everything changed since <code>bb3e80f1a</code>, so it goes safely over 11-04, either hotfix, or the 11-06 zip: 76 backend files, 57 frontend, 19 chart, 1 script and 2 Spark.</p>
+<p>One file must be deleted if it is still there: <code>backend/core/feed_timeout_sweeper.py</code> (listed in <code>DELETED.txt</code>).</p>
+<p>There are no new Python or npm packages since the 11-06 zip.</p>
+<p><b>Nothing to run by hand in the database.</b> Seven new columns add themselves when the new API pod starts, all empty: two on embed links (<code>fixed_values</code>, <code>link_options</code>), two on sign-offs (<code>overrode</code>, <code>checked</code>) and three on comments (<code>resolved_by</code>, <code>resolved_at</code>, <code>origin</code>).</p>
+
+<h2>2 · Deploy, in this order</h2>
+<ol>
+<li><b>Take a database backup</b> so that a rollback is exact.</li>
+<li><b>Unzip over the source tree</b> of your UAT deployment, leaving out <code>k8s</code> as above.</li>
+<li><b>Delete</b> <code>backend/core/feed_timeout_sweeper.py</code> if it is still there.</li>
+<li><b>Build these images</b> and push them with the tag you deploy:
+<table>
+<tr><th>Image</th><th>Why</th></tr>
+<tr><td><code>querystudio-api</code> (<code>Dockerfile.api</code>)</td><td>Backend code. It also runs the feed worker, job worker and scheduler.</td></tr>
+<tr><td><code>querystudio-reports</code> (<code>Dockerfile.reports</code>)</td><td>Backend code</td></tr>
+<tr><td><code>querystudio-published-api</code> (<code>Dockerfile.published-api</code>)</td><td>Backend code</td></tr>
+<tr><td>UI image (<code>Dockerfile.ui</code>)</td><td>Frontend code, and the UI server that reads the embedding sites</td></tr>
+<tr><td><b>Spark job image</b> (new this time)</td><td><code>spark/jobs/generic_feed.py</code> changed: a progress report that does not arrive is now sent again with the next one. Without this rebuild, feeds still run, but the old image can lose progress lines.</td></tr>
+</table></li>
+<li><b>Roll out the new images</b> the way you did for the last update.</li>
+</ol>
+
+<h2>3 · One chart line, only if you use Embedding sites</h2>
+<p>The new Admin screen <b>Embedding sites</b> lets an admin change which sites may show an embedded report, with no deployment. The UI pod reads that list from the API. Add this to the UI chart's <code>config</code> values, using your API service's name and port inside the cluster:</p>
+<p><code>internalApiUrl: "http://querystudio-api:8000"</code></p>
+<p>Also add this line to <code>ui/templates/configmap.yaml</code>, above <code>"frameAncestors"</code>:</p>
+<p><code>"internalApiUrl": {{ .Values.config.internalApiUrl | default "http://querystudio-api:8000" | quote }},</code></p>
+<p>Without it the UI pod tries your public API address instead. If it cannot reach that, the UI log says <code>[frame-policy] could not read /api/embed-sites</code> and the pod keeps the list it already has, so a change on the screen does not take effect. Reports and everything else still work.</p>
+
+<h2>4 · What is new</h2>
+<table>
+<tr><th>Area</th><th>What a person sees</th></tr>
+<tr><td>Comment on the number</td><td>Click a table row or cell, a finance grid line, a bar or a slice, and choose <b>Add a comment</b>. A small marker stays on that number, even after sorting or paging.</td></tr>
+<tr><td>Draft it for me</td><td><b>Draft</b> fills the comment box with a sentence built from the data, such as what moved and by how much. The person edits it and posts. Nothing posts by itself, and it works with no assistant set up.</td></tr>
+<tr><td>Carry forward</td><td>The box offers the note from the earlier run for the same number, and <b>Use it</b> posts a new comment marked as carried. It is never copied by itself and never crosses to another person's data scope.</td></tr>
+<tr><td>In the exports</td><td>The PDF has numbered markers and a Commentary section. Excel has a Commentary sheet and cell notes. Each export can be with or without commentary. Share and embed links leave it out.</td></tr>
+<tr><td>Needs explaining</td><td>For each report you set a measure, a comparison and a limit. Movements over the limit with no comment are listed. At sign-off the person gets a warning, or is stopped if the report is set to Block. A warning overridden is recorded on the sign-off.</td></tr>
+<tr><td>One panel, @mentions, resolve</td><td>One Commentary panel for this run and this report, with Open / Resolved, replies and Resolve. Type @ to tell someone; they get a notice with a link to the number. A person who may not see that data gets no note text.</td></tr>
+<tr><td>Embedding sites</td><td>Admin screen for which sites may show an embedded report, with no deployment.</td></tr>
+<tr><td>Each embed link</td><td>A link can fix values on the server, so a page cannot change them, and has its own options: reader controls, whole report, downloads. One Embed dialog. A report may now have 100 links, up from 5, so each team can have its own.</td></tr>
+<tr><td>Detail popups on an embed</td><td>A click on an embed opens the rows behind it, inside what the link allows.</td></tr>
+</table>
+
+<h2>5 · What is fixed since the 11-06 zip</h2>
+<table>
+<tr><th>Area</th><th>Before</th><th>Now</th></tr>
+<tr><td>Audit log</td><td>Some exports and admin actions were not reaching it.</td><td>They are recorded.</td></tr>
+<tr><td>Spark progress</td><td>A progress report that did not arrive was lost with no message.</td><td>Its lines go out with the next one, and the log says why.</td></tr>
+<tr><td>Busy pods</td><td>Waiting on a connection could raise an error once a process held more than 1,024 open files.</td><td>It no longer does, in the DuckDB worker server and the event bus.</td></tr>
+</table>
+
+<h2>6 · What was tested on this code</h2>
+<table>
+<tr><th>Test</th><th>Result</th><th>Commit</th></tr>
+<tr><td>Full run from an empty system, on Docker</td><td><b>91 groups passed, 0 failed</b>, 317 minutes</td><td><code>d78109e67</code></td></tr>
+<tr><td>Frontend type check and tests</td><td>Type check clean; 3,095 of 3,095 passed</td><td><code>d78109e67</code></td></tr>
+<tr><td>CI test suite (Python 3.11, no network)</td><td>41,431 passed, 0 failed</td><td><code>ac1d3c329</code></td></tr>
+<tr><td>Commentary on Docker, with two row-security scopes on real rows</td><td>55 of 55 passed, and a browser walk by clicks passed</td><td><code>d78109e67</code></td></tr>
+</table>
+<p>The CI suite ran one commit earlier. The last commit changes one condition in the sign dialog, on the screen only, and the frontend tests and full run cover it. The release adds only a line in a project document to <code>d78109e67</code>. The zip was compared with the commit, file by file: 155 files, 0 different.</p>
+<p><b>Not tested, because my rig has only stand-ins:</b> real Snowflake, Kafka, Oracle, Starburst and Hive, your Vault, your AWS portal, your Spark image and your SFTP servers. Also not tested: the assistant rewording a draft on your real service, and mention notices reaching real mail. UAT is the first real test of these.</p>
+
+<h2>7 · Known and not in this update</h2>
+<ul>
+<li><b>The report framework and the simple builder are not in this zip.</b> Their build starts today at 14:00 and will change the report screens. Expect the Sunday or final update to move things you test here.</li>
+<li><b>Comments belong to a run.</b> Refresh makes a new run with no notes on it. Carry forward offers the earlier notes.</li>
+<li><b>A published API on Snowflake</b> is still not fixed, because the cause is not known. I need the exact error text, the SQL, and whether it is a SQL API or a report API.</li>
+<li><b>A shared file download on a table with row policies</b> is refused, which is correct, but the message is poor.</li>
+<li><b>A summed whole number in a CSV</b> downloads as <code>1000.0</code>.</li>
+<li><b>A linked-tile filter</b> does not narrow a popup's detail unless the action maps it. The popup says so.</li>
+</ul>
+
+<h2>8 · Check after deploying (20 minutes)</h2>
+<ol>
+<li>Component Health is green.</li>
+<li>On a report, click a number, add a comment, and check that the marker stays after you sort the table.</li>
+<li>Press <b>Draft</b> on a report with a comparison and check the sentence against the numbers.</li>
+<li>Download the PDF and Excel and find the note in each.</li>
+<li>Set a limit under Needs explaining, then try to sign. You should get the warning.</li>
+<li>Mention a colleague with @. They get a notice, and its link opens the number.</li>
+<li>Add a test site on Admin, Embedding sites, and check that a page on that site can show the report.</li>
+<li>Press <b>Run now</b> on a feed. It completes, the file arrives, and its progress lines show.</li>
+</ol>
+
+<h2>9 · If you must roll back</h2>
+<p>Deploy the previous images, or use <code>helm rollback</code> if the deployment changed through Helm. The new columns can stay: older code does not read them, so the database needs no change. Comments and sign-offs written in the meantime stay in place.</p>
+</body></html>

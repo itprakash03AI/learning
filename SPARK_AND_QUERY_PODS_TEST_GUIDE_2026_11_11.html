@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spark And Query Pods</title>
+<style>
+  :root { --ink:#1d1d1f; --line:#ddd; --head:#f6f6f6; --warn:#fff6e0; --warnb:#e0a000; --ok:#e9f7ee; --okb:#2e8b57; --bg:#fff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#e8e8e8; --line:#444; --head:#2a2a2a; --warn:#3a3020; --warnb:#c90; --ok:#1d3326; --okb:#5c5; --bg:#161616; } }
+  body { font-family:"Segoe UI",system-ui,sans-serif; line-height:1.55; max-width:1000px; margin:2rem auto; padding:0 16px; color:var(--ink); background:var(--bg); }
+  h1 { font-size:1.7rem; margin-bottom:.2rem; } h2 { font-size:1.2rem; margin-top:2rem; border-bottom:1px solid var(--line); padding-bottom:.2rem; }
+  h3 { font-size:1.02rem; margin-top:1.3rem; }
+  table { border-collapse:collapse; width:100%; margin:.6rem 0; } th,td { border:1px solid var(--line); padding:.4rem .55rem; text-align:left; vertical-align:top; font-size:.93rem; }
+  th { background:var(--head); } code, pre { background:var(--head); border-radius:3px; font-size:.9em; }
+  code { padding:.1rem .3rem; } pre { padding:.6rem .8rem; overflow-x:auto; }
+  .warn { background:var(--warn); border-left:4px solid var(--warnb); padding:.5rem .8rem; margin:.8rem 0; }
+  .ok { background:var(--ok); border-left:4px solid var(--okb); padding:.5rem .8rem; margin:.8rem 0; }
+  li { margin:.3rem 0; }
+  @media (max-width:640px) { table { display:block; overflow-x:auto; } }
+</style>
+</head>
+<body>
+<h1>Testing Spark pods and query pods on UAT</h1>
+<p>2026-11-11. For the person testing UAT. Spark pods run feeds; query pods run queries, reports and report-based
+published APIs. Both are created when work arrives and removed when it is done.</p>
+
+<h2>1 · Before you start: what the deployment needs</h2>
+<div class="warn"><b>Deploy EVERY chart.</b> The update zips carry only what changed, and the query-pods chart
+(<code>k8s/querystudioapi-helm/query-pods</code>) was last carried on 2026-11-03, so a UAT deployed without
+<code>k8s/</code> since then does not have it. Use <code>Charts_2026_11_12_*.zip</code> (all charts, the whole
+<code>k8s/querystudioapi-helm</code> folder) and run <code>./deploy.sh uat</code>: it deploys api, feed-worker,
+job-worker, scheduler, <b>query-pods</b>, published-api, reports, downloads and ui. Check after:
+<code>oc get deploy -n 45646 | grep query-pods</code> shows <code>querystudio-query-pods-s</code> and
+<code>-m</code> at 0/0.</div>
+<table>
+  <tr><th>What</th><th>Where</th><th>Why</th></tr>
+  <tr><td>The Spark job image, built from <code>spark/</code> in the release bundle and pushed to your registry</td>
+  <td><code>env/uat.site.yaml</code>: <code>sparkK8s.image: &lt;registry&gt;/45646/spark-etl:&lt;release&gt;</code></td>
+  <td>The deploy stops with a message naming <code>spark_k8s.image</code> if it is missing.</td></tr>
+  <tr><td>Permission for the API and feed-worker pods to create pods in project <code>45646</code></td>
+  <td>The charts create the Role and the <code>spark</code> service account. Your project must allow Roles.</td>
+  <td>Without it a Spark run is refused, with the reason on the run.</td></tr>
+  <tr><td>Permission for the scheduler pod to scale the query-pod deployments</td>
+  <td>The scheduler chart's <code>rbac-query-pods.yaml</code></td>
+  <td>QueryStudio's own scaler starts and stops the query pods (UAT has no KEDA).</td></tr>
+  <tr><td>Memory in the project for the pods</td>
+  <td>Query pods: up to 2 × 4 GB and 1 × 8 GB. Spark: the driver and executors set on Admin → Spark Pods.</td>
+  <td>A pod that cannot be placed stays Pending; the run says so.</td></tr>
+</table>
+<p>The settings themselves are already in <code>env/uat.yaml</code>: query pods on with sizes <b>s</b> (4 GB, 0 to 2 pods)
+and <b>m</b> (8 GB, 0 to 1 pod), every query sent to a pod (UAT test mode), reports included; Spark pods on, in project
+<code>45646</code>, choosing the operator or a plain driver pod by itself.</p>
+
+<h2>2 · Spark pods</h2>
+<h3>2.1 Run any feed on Spark, once</h3>
+<ol>
+  <li>Feeds → a feed → <b>Run now</b>.</li>
+  <li><b>Engine for this run</b> → <b>Spark cluster</b>. The note under it says: "This run starts its own Spark pods,
+  whatever its size, and removes them when it ends."</li>
+  <li><b>Run Feed</b>. The message says the run started "on its own Spark pods".</li>
+</ol>
+<p><b>What you should see</b></p>
+<ul>
+  <li>In the project, within a minute: a driver pod, then executor pods.
+  <pre>oc get pods -n 45646 -l spark-role -w</pre>
+  When the run ends they finish and are removed.</li>
+  <li>The run completes and the file arrives, with the same rows and values as a run on the QueryStudio worker
+  (run the same feed again with <b>Engine for this run → QueryStudio worker</b> and compare the two files).</li>
+  <li>The feed's own setting has not changed: the next scheduled run uses it as before.</li>
+</ul>
+<h3>2.2 What Spark is allowed to do here</h3>
+<ul>
+  <li>Admin → <b>Spark Pods</b> shows the Spark settings this deployment uses (image, namespace, how pods are created,
+  sizes).</li>
+  <li><code>GET /api/feeds/backend-options</code> lists the engines and whether each can be used now. If Spark is listed
+  as unavailable, the reason is next to it (for example a missing permission). The Run-now list shows the same.</li>
+</ul>
+<h3>2.3 Cases to try</h3>
+<table>
+  <tr><th>Case</th><th>Expected</th></tr>
+  <tr><td>A small feed (a few hundred rows) on Spark</td><td>Completes. Spark pods are created even for a small feed when
+  you choose Spark.</td></tr>
+  <tr><td>A feed left on "Automatic", by size</td><td>Up to 500,000 rows: the QueryStudio worker. Above 500,000 rows: its own Spark pods.
+  (UAT has no Spark Connect server, so it is switched off in <code>env/uat.yaml</code>; before 2026-11-12 it was
+  wrongly on, and a feed of 500,000 to 10 million rows was sent to a server that is not there.)
+  The run's details say which engine and why ("auto_route_large_spark_k8s(rows=...)").</td></tr>
+  <tr><td>A two-sided feed (cloud + on-prem)</td><td>Completes on Spark with both sides joined as on the worker.</td></tr>
+  <tr><td>Stop the run while it is running</td><td>The run says cancelled; the driver and executor pods are removed.</td></tr>
+  <tr><td>A wrong image name in the site file</td><td>The run fails with "could not pull the image", not a hang.</td></tr>
+  <tr><td>The source's password changed in Vault</td><td>The Spark run logs in with the new one (the login is read for
+  each run).</td></tr>
+</table>
+
+<h2>3 · Query pods (the MotherDuck-style engine)</h2>
+<div class="ok">A query is priced (how much memory it needs) and sent to the smallest size that holds it. The pod runs it
+on DuckDB, reading S3 directly or the source through its connection, and the answer comes back to the screen as before.
+Each size starts at 0 pods: a pod is created when a query for it arrives and removed after 10 quiet minutes.</div>
+<div class="warn">The first query after a quiet spell waits while a pod starts: about 1 to 3 minutes. That is the
+on-demand behaviour you asked for. To keep a pod ready, set that size's <code>min: 1</code> in
+<code>env/uat.yaml</code>.</div>
+<h3>3.1 See a pod appear</h3>
+<ol>
+  <li>In a terminal: <pre>oc get deploy,pods -n 45646 | grep query-pods</pre>
+  Both deployments, <code>querystudio-query-pods-s</code> and <code>-m</code>, show <code>0/0</code>.</li>
+  <li>In QueryStudio, run any query on the SQL page, or open and run a report.</li>
+  <li>Within about a minute <code>querystudio-query-pods-s</code> becomes <code>1/1</code> and a pod starts. The query
+  finishes and shows its rows.</li>
+  <li>Run more queries: they go to the same pod (2 at a time per pod); with more waiting, a second <b>s</b> pod starts
+  (at most 2).</li>
+  <li>Leave it for 10 minutes: the pod is removed and the deployment is back to <code>0/0</code>.</li>
+</ol>
+<h3>3.2 Where to look in QueryStudio</h3>
+<table>
+  <tr><th>Where</th><th>What it says</th></tr>
+  <tr><td>Admin → <b>Component Health</b> → "query pods (sizes and their scaling)"</td><td>Healthy, or in words what is
+  wrong with which size (for example "runs waiting 3 min at the maximum").</td></tr>
+  <tr><td><code>GET /api/jobs</code> (your own runs)</td><td>Each run that went to a pod: its size (<code>pod_class</code>),
+  its state and who ran it.</td></tr>
+  <tr><td><code>GET /api/jobs/queue/stats</code> (admin)</td><td>How many runs are waiting, running and done, and whether
+  the queue is on.</td></tr>
+  <tr><td>The API pod's log</td><td>For a run that did NOT go to a pod, the reason: the sizes are not set, the queue is
+  off, the run is priced as small, or (a report) the reports lane is off.</td></tr>
+</table>
+<h3>3.3 Cases to try</h3>
+<table>
+  <tr><th>Case</th><th>Expected</th></tr>
+  <tr><td>The same query on the SQL page twice</td><td>The same rows both times; the second is faster (the pod is
+  warm).</td></tr>
+  <tr><td>A report run, and the same report as a published API</td><td>The same numbers as before the pods were on (both go
+  to the pods with the reports lane on).</td></tr>
+  <tr><td>Two people running at the same time</td><td>Both finish; neither waits for the other's run longer than the run
+  itself.</td></tr>
+  <tr><td>A query too big for 8 GB</td><td>Refused with "too big for every query pod" in words, never left waiting.</td></tr>
+  <tr><td>No pod can start (the project is out of memory)</td><td>After 10 minutes the run fails with the reason; Component
+  Health shows the size as not healthy.</td></tr>
+  <tr><td>Cancel a long query</td><td>It stops on the pod; the pod takes the next query.</td></tr>
+</table>
+
+<h2>4 · Feeds never run on query pods; reports never run on Spark</h2>
+<p>A feed runs on the QueryStudio worker or on Spark pods. A query, report or published API runs on a query pod (or in the
+API pod when the pods are off). That split is by design; the test above uses each where it belongs.</p>
+
+<h2>5 · Turning it back</h2>
+<ul>
+  <li>Query pods off: remove the <code>industrialization</code> and <code>query_pods</code> blocks from
+  <code>env/uat.yaml</code> and deploy. Every query runs in the API pod again, as before.</li>
+  <li>Spark pods off: <code>sparkK8s.enabled: false</code>. Feeds run on the worker; a feed pinned to Spark is refused with
+  the reason.</li>
+  <li>Production: keep <code>small_run_mb</code> at its default (512): small queries then stay in the API pod and only
+  heavy ones go to a pod.</li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,7 @@
+Deployment_2026_11_08_5340a5a5c: 1 parts, each under 24 MB.
+Extract EVERY part into the SAME folder; together they are the whole bundle.
+
+Deployment_2026_11_08_5340a5a5c.zip  2.4 MB  113 files  sha256 938c2e148f240f6fc17b1cb33126884957e9e091f9d0c20b4192c0ae6d3656ac
+    contains: DELETED.txt, MANIFEST.txt, backend, frontend, spark
+
+113 files in all

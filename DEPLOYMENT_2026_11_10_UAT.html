@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAT Update 2026-11-10</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; line-height: 1.55; max-width: 1000px;
+         margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; background: #fff; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  th, td { border: 1px solid #ddd; padding: .4rem .55rem; text-align: left; vertical-align: top; font-size: .93rem; }
+  th { background: #f6f6f6; }
+  code { background: #f4f4f4; border-radius: 3px; font-size: .9em; padding: .1rem .3rem; }
+  .warn { background: #fff6e0; border-left: 4px solid #e0a000; padding: .5rem .8rem; margin: .8rem 0; }
+  li { margin: .3rem 0; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+<h1>UAT update, 2026-11-10 (Tuesday)</h1>
+<p>Code <code>f5a516200</code> on master, tag <code>release/2026-11-10-f5a516200</code>. Zip
+<code>Deployment_2026_11_10_f5a516200.zip</code>.</p>
+<div class="warn">This zip holds every change since <code>2adb5a259</code> (the 11-07 zip), so it <b>includes the 11-08 and
+11-09 zips</b>. Deploy it whether or not you deployed those: if you did, the same files are simply written again. Tell me
+once it is deployed, and I will move the deployment base to <code>f5a516200</code>.</div>
+
+<h2>1 · What is in the zip</h2>
+<p>177 entries: 175 files (99 backend, 74 frontend, 1 Spark job file and <code>Dockerfile.ui</code>), plus
+<code>MANIFEST.txt</code> and <code>DELETED.txt</code>. Nothing to delete. No new Python or npm packages. I compared every
+file in the zip with the commit: all 175 are identical.</p>
+<p>Nothing to run by hand in the database. Today's code adds no columns. The two columns from the 11-08 and 11-09 zips
+add themselves when the new API pod starts, empty: <code>system_accounts.vault_field_map</code> and
+<code>query_executions.job_id</code>.</p>
+<div class="warn"><b>One automatic change at start-up:</b> any login header a connection has stored in plain text is
+encrypted when the new API pod starts. This covers a REST connection's default headers, Trino extra headers and Databricks
+HTTP headers, under names such as <code>Authorization</code>, <code>X-API-Key</code>, <code>Cookie</code>, or any name
+containing token, secret, key, auth or password. It is the security fix in section 4. Older code cannot read those
+encrypted values, so take the backup in step 1 (see section 9).</div>
+
+<h2>2 · Deploy, in this order</h2>
+<ol>
+  <li>Take a database backup so that a rollback is exact. This is <b>required</b> this time because of the header
+  encryption above.</li>
+  <li>Unzip over the source tree of your UAT deployment.</li>
+  <li>Build these images and push them with the tag you deploy:
+    <table>
+      <tr><th>Image</th><th>Why</th></tr>
+      <tr><td>querystudio-api (<code>Dockerfile.api</code>)</td><td>Backend code. It also runs the feed worker, job worker and scheduler.</td></tr>
+      <tr><td>querystudio-reports (<code>Dockerfile.reports</code>)</td><td>Backend code</td></tr>
+      <tr><td>querystudio-published-api (<code>Dockerfile.published-api</code>)</td><td>Backend code</td></tr>
+      <tr><td>UI image (<code>Dockerfile.ui</code>)</td><td>Frontend code, and <code>Dockerfile.ui</code> changed on 11-09 (the installable app).</td></tr>
+      <tr><td>Spark job image</td><td><code>spark/jobs/generic_feed.py</code> changed on 11-08 (a Snowflake key-pair login on Spark). Without the new image such a feed fails on Spark. It runs either way on the native engine.</td></tr>
+    </table></li>
+  <li>Roll out the new images the way you did for the last update.</li>
+</ol>
+<div class="warn">After the deploy, each published API reads fresh data on its first request, once (from the 11-08 cache fix).</div>
+
+<h2>3 · What is new today</h2>
+<table>
+  <tr><th>Area</th><th>What a person sees</th></tr>
+  <tr><td>Screen size and text</td><td>Text now grows smoothly with the screen, with no fixed steps. It is 16px up to
+  1600px wide, about 16.7px at 1920 and about 18px at 2560. A 1920 monitor at 100% <b>no longer looks zoomed in</b>. The left
+  menu grows with its text, so <b>no menu label wraps onto a second line</b>. New: <b>user menu &rarr; Text size</b>
+  (Smaller / Default / Larger / Largest), kept in that browser for that person.</td></tr>
+  <tr><td>Report designer, step by step</td><td>A visual is set up one step at a time, docked or in a popup. The fields to
+  use are suggested from the dataset, without reading any data. Each tile has <b>Edit</b>, <b>Duplicate</b> and
+  <b>Delete</b>.</td></tr>
+  <tr><td>Clone a connection</td><td><b>Clone</b> opens the normal connection popup, filled in from the source. An S3 copy
+  asks for its own bucket and keeps the saved keys. A kept password or key cannot be sent to a new host: re-type it, or point
+  the copy at a Vault System Account.</td></tr>
+  <tr><td>Vault for token logins</td><td>A Databricks access token, and the on-prem Hive (Trino / Starburst) session token,
+  can come from a Vault System Account, the same way passwords already do. With an account chosen, a token typed on the
+  connection is not used or kept.</td></tr>
+  <tr><td>Published API dates</td><td>A date parameter accepts the dynamic values a report accepts (<code>@TODAY</code>,
+  <code>@PREV_BUSINESS_DAY</code>, <code>-1d</code>, ...) on <b>every</b> format, CSV included.</td></tr>
+</table>
+
+<h2>4 · What is fixed (since the 11-09 zip)</h2>
+<table>
+  <tr><th>Where</th><th>Before</th><th>Now</th></tr>
+  <tr><td>Snowflake queries</td><td>A query returning a <code>NUMBER(p,s)</code> column (a decimal) could fail.</td><td>Decimals are written as decimals. Whole numbers (<code>NUMBER(p,0)</code>) stay whole numbers, unless a value is too big for one.</td></tr>
+  <tr><td>Saved login headers (security)</td><td>A REST / Trino / Databricks login header was stored in plain text, shown unmasked on the Connections page and copied by Clone.</td><td>Masked, encrypted, and kept with <code>***</code> like a password (section 1).</td></tr>
+  <tr><td>Editing a connection (security)</td><td>An edit could keep the saved password while changing the host, which sent the password to the new host.</td><td>Refused in words: re-type the password for a new host. Pointing at a different Vault account is allowed and recorded.</td></tr>
+  <tr><td>REST queries (security)</td><td>A REST query could send its connection's login to another host.</td><td>A request that carries a login stays on the connection's own host. A connection with no login may still call other hosts.</td></tr>
+  <tr><td>Clone of a connection saved long ago</td><td>Clone said "SSL verify changed" and refused, for a source saved before the form had that switch.</td><td>A missing switch counts as ON, as the connection always behaved. Turning verification OFF while keeping the keys is still refused.</td></tr>
+  <tr><td>Report parameter band</td><td>An empty parameter that filters at the source read "All".</td><td>It reads "As in the query", which is what runs.</td></tr>
+</table>
+<p>The 11-08 and 11-09 items (the simple designer, Power BI import, background runs for large queries, the installable app,
+Snowflake / Databricks as-of, the System Account Test fix, and more) are in this zip too. See
+<code>DEPLOYMENT_2026_11_08_UAT.html</code> and <code>DEPLOYMENT_2026_11_09_UAT.html</code>.</p>
+
+<h2>5 · What to test (about 45 minutes, plus the 11-08 / 11-09 lists)</h2>
+<ol>
+  <li><b>Screen.</b> On a 1920 monitor at 100%, the screen no longer looks zoomed in and every menu label is on one line.
+  Try <b>user menu &rarr; Text size &rarr; Larger</b>: the text grows, the menu still fits, and the choice survives a
+  reload.</li>
+  <li><b>Snowflake decimals.</b> Run a report or query over a Snowflake table that has a decimal column. It returns the
+  right values, and whole-number columns stay whole.</li>
+  <li><b>Clone.</b> Clone an S3 connection to a new bucket, keeping the keys: it reads its tables. Clone it to the same
+  bucket: refused in the popup. Clone a Starburst connection to a new catalog: the password is kept. Change the host while
+  keeping the password: refused in words.</li>
+  <li><b>Vault token.</b> On a Databricks connection, or an on-prem Hive connection with a token login, choose a Vault
+  System Account. Test, then run a query.</li>
+  <li><b>Published API date.</b> Call a published API with a date parameter set to <code>@PREV_BUSINESS_DAY</code> in
+  CSV and in JSON. Both return the same day's rows.</li>
+  <li><b>Designer.</b> Open a report in the designer, add a visual step by step, and accept a suggested field. Then
+  duplicate the tile and delete it.</li>
+  <li><b>Headers.</b> If you have a REST connection with an <code>Authorization</code> header, open it: the value shows
+  <code>***</code>. A query on it still works.</li>
+  <li><b>The 11-08 and 11-09 lists</b>, if not done yet.</li>
+</ol>
+
+<h2>6 · What was tested on this code</h2>
+<table>
+  <tr><th>Test</th><th>Result</th><th>Commit</th></tr>
+  <tr><td>CI test suite (Python 3.11, no network)</td><td>41,959 passed, 0 failed</td><td>d4da7dfac</td></tr>
+  <tr><td>Frontend type check and tests</td><td>Type check clean; 3,240 of 3,240 passed</td><td>d4da7dfac</td></tr>
+  <tr><td>Browser tests on the Docker rig, rebuilt from this code, signed in as a real user</td><td>19 of 19, in 11 files: clone
+  (5), designer (3), report parameters at the source, Diagnostics, date parameter and column order, dataset to report and
+  rename, UNION of two sources, the canvas, insight tiles, the menu at 5 widths &times; 2 text sizes, text size at 3 screen
+  sizes</td><td>d4da7dfac</td></tr>
+  <tr><td>Full run from an empty system, on Docker</td><td>93 groups passed, 0 failed, in one sequence</td><td>0f5b09bf9</td></tr>
+  <tr><td>Real accounts (Snowflake, Databricks, AWS, Starburst) and the extra proofs</td><td>All passed</td><td>0f5b09bf9</td></tr>
+</table>
+<p>After the full run from empty, <code>0f5b09bf9</code> to <code>d4da7dfac</code> changed only the two fixes in section 4
+(the clone TLS switch, the band's words) and the browser tests. The CI suite, frontend tests and browser tests above ran on
+<code>d4da7dfac</code>. <code>f5a516200</code> is its merge into master: the same tree.</p>
+<p><b>Not tested</b>, because my rig uses stand-ins for these: your Vault, AWS portal and proxy, Spark image, SFTP servers,
+Starburst and Hive, and mail server.</p>
+
+<h2>7 · Known and not in this update</h2>
+<ul>
+  <li><b>App roles</b> (BTB / RTB / Finance as roles chosen from a list, with reports assigned per role): built and
+  reviewed. Its Docker proof is still to run, and it needs your decisions on the open items.</li>
+  <li><b>Release pipeline</b> (GitLab + Jira, UAT &rarr; PROD): built and reviewed. Its Docker proof is still to run, and it
+  needs your GitLab details.</li>
+  <li><b>Month-end template driven by partitions</b>: built. Its Docker proof is still to run.</li>
+  <li>Databricks on Spark (the hybrid path): built, its rig proof is still to run.</li>
+  <li>A screen field for the background-run threshold and the mail domain. For now, use the two API calls in the 11-09
+  guide, section 3.</li>
+  <li>Writing feed output <i>into</i> Snowflake or Databricks: planned, low priority.</li>
+</ul>
+
+<h2>8 · Check after deploying (15 minutes)</h2>
+<ul>
+  <li>Component Health is green.</li>
+  <li>Open an existing report and run it: the numbers are the same as before.</li>
+  <li>Open an existing published API twice: the first answer is fresh, the second fast.</li>
+  <li>Connections opens. Every saved password and login header shows <code>***</code>, and an existing connection's Test passes.</li>
+  <li>Press <b>Run now</b> on a feed: it completes and the file arrives.</li>
+</ul>
+
+<h2>9 · If you must roll back</h2>
+<p><b>Restore the database backup from step 1 together with the previous images</b> (or <code>helm rollback</code> plus the
+backup). Older code cannot read the login headers this update encrypts, so with the old images and today's database a REST /
+Trino / Databricks connection that has such a header would fail its login. Without the backup, re-type those header values
+after rolling back. The two new columns can stay: older code does not read them.</p>
+</body>
+</html>

@@ -1,0 +1,7 @@
+Deployment_2026_11_10_f5a516200: 1 parts, each under 24 MB.
+Extract EVERY part into the SAME folder; together they are the whole bundle.
+
+Deployment_2026_11_10_f5a516200.zip  3.5 MB  177 files  sha256 59211b22d6edb39d3531a00ca5ff00ab4f3c7401fe385c413198a37dfe8f6f78
+    contains: DELETED.txt, Dockerfile.ui, MANIFEST.txt, backend, frontend, spark
+
+177 files in all

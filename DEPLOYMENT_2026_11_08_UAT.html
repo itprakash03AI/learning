@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UAT Update 2026-11-08</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; line-height: 1.55; max-width: 1000px;
+         margin: 2rem auto; padding: 0 1rem; color: #1d1d1f; background: #fff; }
+  h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+  h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; }
+  th, td { border: 1px solid #ddd; padding: .4rem .55rem; text-align: left; vertical-align: top; font-size: .93rem; }
+  th { background: #f6f6f6; }
+  code { background: #f4f4f4; border-radius: 3px; font-size: .9em; padding: .1rem .3rem; }
+  .warn { background: #fff6e0; border-left: 4px solid #e0a000; padding: .5rem .8rem; margin: .8rem 0; }
+  li { margin: .3rem 0; }
+  @media (max-width: 640px) { table { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+<h1>UAT update, 2026-11-08 (Sunday)</h1>
+<p>Code <code>3d18fee9e</code> on master. It goes over the 11-07 zip (<code>2adb5a259</code>), which is what UAT runs now.
+It brings the new report designer, the Power BI import, and the fixes found by running every feature against real
+Snowflake, Databricks and Jira accounts.</p>
+
+<h2>1 · What is in the zip</h2>
+<p>Everything changed since <code>2adb5a259</code>: 76 backend files, 34 frontend files and 1 Spark file (111 in all). No chart files.
+Nothing to delete. No new Python or npm packages.</p>
+<p>Nothing to run by hand in the database. One new column adds itself when the new API pod starts, empty:
+<code>system_accounts.vault_field_map</code>.</p>
+
+<h2>2 · Deploy, in this order</h2>
+<ol>
+  <li>Take a database backup so that a rollback is exact.</li>
+  <li>Unzip over the source tree of your UAT deployment.</li>
+  <li>Build these images and push them with the tag you deploy:
+    <table>
+      <tr><th>Image</th><th>Why</th></tr>
+      <tr><td>querystudio-api (<code>Dockerfile.api</code>)</td><td>Backend code. It also runs the feed worker, job worker and scheduler.</td></tr>
+      <tr><td>querystudio-reports (<code>Dockerfile.reports</code>)</td><td>Backend code</td></tr>
+      <tr><td>querystudio-published-api (<code>Dockerfile.published-api</code>)</td><td>Backend code</td></tr>
+      <tr><td>UI image (<code>Dockerfile.ui</code>)</td><td>Frontend code</td></tr>
+      <tr><td>Spark job image</td><td><code>spark/jobs/generic_feed.py</code> changed: a Snowflake feed that logs in with a key pair now runs on Spark. Without this rebuild such a feed fails on Spark; on the native engine it works either way.</td></tr>
+    </table></li>
+  <li>Roll out the new images the way you did for the last update.</li>
+</ol>
+<div class="warn">After the deploy, each published API reads fresh data on its first request. Its cached answers are now
+tied to the API's exact definition (a fix: an API that reused an old id could be served the old API's rows), so the old
+cache entries are not used. This happens once.</div>
+
+<h2>3 · What is new</h2>
+<table>
+  <tr><th>Area</th><th>What a person sees</th></tr>
+  <tr><td>Simple report designer</td><td>A report built like Power BI: pick the data, drag fields onto visuals, see it draw, save. The fifteen templates stay. Pivot and join reports still open in the tabular builder.</td></tr>
+  <tr><td>Cloud + on-prem in the designer</td><td>On a new report, <b>+ Same data from another source</b> picks a second dataset. The rows are stacked by column name; every visual adds both sides; a parameter narrows both sides. The top bar says <i>Data: A + B (stacked by column name)</i>.</td></tr>
+  <tr><td>Power BI import</td><td>In the canvas builder or New report: <b>Import from Power BI</b>, pick a <code>.pbix</code>, <code>.pbit</code> or zipped <code>.pbip</code> and a dataset. A preview shows each visual, what it becomes, each field's match, and what could not come across. Create makes the report. The data always comes from your dataset, never from the file.</td></tr>
+  <tr><td>Report sources</td><td>A report can read a file in a folder connection or a REST API, besides datasets, SQL and published APIs.</td></tr>
+  <tr><td>Outline tables</td><td>An opened row now keeps its own numbers, in bold, as its subtotal. No empty row and no separate "... Total" line. The old layout is still available: in the outline's settings, <b>Subtotals</b> &rarr; <i>On a line under its rows</i>.</td></tr>
+  <tr><td>Count of rows with a value</td><td>A new aggregation for text columns (Power BI's COUNTA). "Count" itself is unchanged.</td></tr>
+  <tr><td>Vault field names</td><td>On a System Account that reads key-value secrets from Vault, a <b>Vault field names</b> section says which Vault field holds the username, password or token, private key and so on, when your Vault uses other names (for example <i>access key</i>). Blank = the names match. <b>Test</b> lists the field names it found, never the values.</td></tr>
+  <tr><td>Jira from Vault</td><td>A Jira System Account can read its e-mail and token from Vault key-value; QueryStudio then stores only placeholders.</td></tr>
+</table>
+
+<h2>4 · What is fixed since the 11-07 zip</h2>
+<table>
+  <tr><th>Where</th><th>Before</th><th>Now</th></tr>
+  <tr><td>Published APIs</td><td>An API that reused an old id could be served the old API's cached rows and columns.</td><td>The cache belongs to one API definition.</td></tr>
+  <tr><td>CSV downloads</td><td>A summed whole number downloaded as <code>1000.0</code>.</td><td><code>1000</code>, on every CSV road (download, published API, subscription file, results grid). A real fraction is kept; very large numbers keep their exact digits.</td></tr>
+  <tr><td>Share-link downloads</td><td>A share link over a table with row policies answered "Internal server error".</td><td>A plain sentence: the file was not made, why, and what to do. Still refused.</td></tr>
+  <tr><td>Snowflake</td><td>A published API filtered on a mixed-case column (<code>"Desk"</code>) answered 500.</td><td>The column's real spelling is used; <code>?desk=</code> and <code>?Desk=</code> both work.</td></tr>
+  <tr><td>Snowflake on Spark</td><td>A feed whose Snowflake login is a key pair was kept off Spark.</td><td>It runs on Spark, logged in with its key; the key never appears in the pod.</td></tr>
+  <tr><td>Databricks</td><td>Views were listed as tables; a partition column was listed twice; partition values were the column name; a 17-digit decimal lost its cents in the results; mixed-case columns broke value lists, report filters and APIs; Cancel did not stop the query.</td><td>All fixed and proven on a real Databricks workspace. Cancel stops the query at the warehouse and the run says <i>cancelled</i>.</td></tr>
+  <tr><td>Jira Cloud</td><td>Atlassian removed the search QueryStudio used to find an alert's issue, so a retried alert could fail.</td><td>The new search, with the old one for Jira Data Center.</td></tr>
+  <tr><td>Report charts</td><td>A new dropdown list opened before its values were saved showed nothing.</td><td>It reads the values live until the list is filled.</td></tr>
+  <tr><td>Subscriptions</td><td>A test send by an owner signed in locally (no AD group) was refused by row security.</td><td>The background run resolves the owner exactly as their screen does.</td></tr>
+  <tr><td>Reports</td><td>A run moved the report's "last changed" time, so the designer warned of a conflict after a run.</td><td>A run never moves it.</td></tr>
+  <tr><td>Report reading an API built on itself</td><td>It called itself until it ran out of resources.</td><td>Refused in words (409).</td></tr>
+  <tr><td>A stored report of a kind no longer known</td><td>It ran as a dataset report.</td><td>Refused in words (400), naming the kinds that exist.</td></tr>
+</table>
+
+<h2>5 · What to test (about 60 minutes)</h2>
+<ol>
+  <li><b>Designer.</b> New report &rarr; <i>Blank</i>, pick a dataset, drag a field and a number onto a bar, a table and a number tile. Save, reopen, Preview. Run it and check one number against the source.</li>
+  <li><b>Cloud + on-prem.</b> New report, pick the cloud dataset, then <b>+ Same data from another source</b> with the on-prem dataset of the same query. Check a total equals cloud plus on-prem. Add a date parameter and check it narrows both sides.</li>
+  <li><b>Power BI.</b> Import one of your own <code>.pbix</code> files on the dataset it uses. Read the preview's "not brought across" list, create, and compare two numbers with Power BI.</li>
+  <li><b>Outline.</b> On a report with an outline table, press <b>Open all</b> and <b>Close all</b>. Every opened row shows its own numbers.</li>
+  <li><b>CSV.</b> Download a report with a summed whole-number column as CSV. It shows <code>1000</code>, not <code>1000.0</code>.</li>
+  <li><b>Share link.</b> On a report over a table with row policies, open a share link and download the file. You get the plain sentence, not an error.</li>
+  <li><b>Vault field names.</b> On a Vault key-value System Account whose field names differ, fill <b>Vault field names</b> and press <b>Test</b>. It lists the fields it found and the login works.</li>
+  <li><b>Snowflake.</b> A published API over Snowflake SQL with a mixed-case column, filtered on that column. If you run Snowflake feeds on Spark with a key-pair login, run one (needs the new Spark image).</li>
+  <li><b>Databricks</b> (if you use it). Browse a schema with a view: it shows as a view. Run a long query in the SQL editor and press Cancel: it stops and says cancelled.</li>
+  <li><b>Jira</b> (if you use alerts). Put the Jira token in Vault, point the Jira System Account at it, and raise a test alert: one issue opens; a repeat does not open a second; clearing it closes the issue.</li>
+  <li><b>Commentary and the 11-06 / 11-07 items</b> are still to test from those guides; they are in this code too.</li>
+</ol>
+
+<h2>6 · What was tested on this code</h2>
+<table>
+  <tr><th>Test</th><th>Result</th><th>Commit</th></tr>
+  <tr><td>Full run from an empty system, on Docker</td><td>93 groups passed, 0 failed, 322 minutes</td><td>950b52c27</td></tr>
+  <tr><td>Frontend type check and tests</td><td>Type check clean; 3,167 of 3,167 passed</td><td>950b52c27</td></tr>
+  <tr><td>CI test suite (Python 3.11, no network)</td><td>41,659 passed, 0 failed</td><td>11b5c152a</td></tr>
+  <tr><td>Snowflake, real account, every feature</td><td>83 of 83; older proofs 35/35, 6/6, 12/12</td><td>950b52c27</td></tr>
+  <tr><td>Databricks, real workspace, every feature</td><td>107 of 107</td><td>950b52c27</td></tr>
+  <tr><td>Jira, real site, token from Vault</td><td>31 of 31</td><td>950b52c27</td></tr>
+  <tr><td>Designer cloud (AWS S3) + on-prem (Trino)</td><td>14 of 14, 11,000 values compared</td><td>950b52c27 (the proof's own fix: 669a2c7cb)</td></tr>
+  <tr><td>Power BI import, real Microsoft sample file</td><td>29 of 29, every chart against the file's own data</td><td>in the full run</td></tr>
+</table>
+<p>The CI suite ran one commit before the final one; between them only one frontend test file changed, and the frontend
+tests and the full run cover it. <code>3d18fee9e</code> is <code>950b52c27</code> plus that proof script fix and the merge.</p>
+<p><b>Not tested</b>, because my rig has stand-ins for these: your Vault, your AWS portal, your Spark image, your SFTP
+servers, your Starburst and Hive, and Power BI Desktop's own figures (the import was compared with the file's own data).</p>
+
+<h2>7 · Known and not in this update</h2>
+<ul>
+  <li><b>Next update</b> (built and reviewed, its own full run to come): large queries running in the background with a
+  notification and an e-mail; the installable desktop app (an icon and its own window); reading Snowflake and Databricks
+  data <i>as of</i> an earlier time, with a picker in the API Explorer.</li>
+  <li>Writing feed output <i>into</i> Snowflake or Databricks: planned, low priority.</li>
+  <li>The slow 500-column S3 query: still needs your pod logs.</li>
+  <li>Comments belong to a run: Refresh makes a new run; Carry forward offers the earlier notes.</li>
+</ul>
+
+<h2>8 · Check after deploying (15 minutes)</h2>
+<ul>
+  <li>Component Health is green.</li>
+  <li>Open an existing report and run it: the numbers are the same as before the deploy.</li>
+  <li>Open an existing published API twice: the first answer is fresh (see the note in section 2), the second is fast.</li>
+  <li>Admin &rarr; System Accounts opens, and an existing account's Test still passes.</li>
+  <li>Press <b>Run now</b> on a feed. It completes and the file arrives.</li>
+</ul>
+
+<h2>9 · If you must roll back</h2>
+<p>Deploy the previous images, or use <code>helm rollback</code> if the deployment changed through Helm. The new column can
+stay: older code does not read it, so the database needs no change. Reports made with the new designer, and Power BI imports, stay in the database; check them again once you are back on this code.</p>
+</body>
+</html>
