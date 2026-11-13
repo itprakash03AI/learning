@@ -14,6 +14,7 @@
 
 | File | What it is |
 |---|---|
+| `Architecture_2026_11_12.zip` | All four in one file (for networks that block .pptx / .html downloads): the 18-slide architect deck `ARCHITECTURE_FLOW_2026_11_12.pptx` + `.pdf`, and How QueryStudio works `ARCHITECTURE_2026_11_10.html` + `.pdf` |
 | `ARCHITECTURE_2026_11_10.pdf` | How QueryStudio works (opens anywhere) |
 | `ARCHITECTURE_2026_11_10.html` | The same as a web page (download it; GitHub shows .html as code) |
 | `ARCHITECTURE_FLOW_2026_11_12.pptx` / `.pdf` | The 18-slide architect deck |
